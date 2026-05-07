@@ -29,7 +29,12 @@ Nexo is a high-performance, type-safe, network-accessible in-memory key-value st
 
 ### Stage 3: The Memory Limit (LRU)
 - **Goal:** Implement an LRU eviction policy to prevent memory overflow.
-- **Status:** 📅 Pending
+- **Status:** ✅ Completed
+- **Notes:** 
+    - *Focus: Doubly Linked Lists and O(1) Cache Eviction.*
+    - *Key Learning: `container/list` provides a Doubly Linked List where nodes can be moved to the front or removed in O(1) time regardless of list size.*
+    - *Architectural Pattern: The "Map + List" combo. The map provides instant lookup (O(1)), while the list maintains the chronological order of access.*
+    - *LRU Logic: `GET` triggers `MoveToFront`; `SET` triggers `PushFront` and potentially a `Remove(Back)` if capacity is exceeded.*
 
 ### Stage 4: The Cluster (Distribution)
 - **Goal:** Allow multiple Nexo nodes to sync data.
@@ -90,3 +95,32 @@ The goal was to transform the local store into a network server that accepts TCP
 - A concurrent TCP server that supports SET, GET, and DEL commands.
 - **Success Metric:** Verified via `nc localhost 9090` with successful data persistence and error handling.
 - **Key takeaway:** Mastered the basics of TCP networking, stream parsing with `bufio`, and the importance of the "Request-Response" cycle in network protocols.
+
+### [2026-05-06] Stage 3: The Memory Limit (LRU Engine)
+The goal was to prevent memory overflow by implementing a Least Recently Used (LRU) eviction policy.
+
+#### 🚩 The Struggle & The Solutions
+
+**1. The "Map vs List" Paradox**
+- **Challenge:** Understanding how to maintain both a map forT fast lookup and a list for chronological order.
+- **Solution:** Storing `*list.Element` in the map instead of the value itself. This allowed O(1) access to the node in the list to move it to the front.
+
+**2. The "Type Assertion" Mystery**
+- **Error:** Compiler errors when accessing values from the `list.Element`.
+- **Cause:** `list.Element.Value` is of type `any`.
+- **Fix:** Used type assertions (`element.Value.(*entry[V])`) to cast the "mystery box" back into the specific `entry` struct.
+
+**3. The "Generic Instantiation" Error**
+- **Error:** `cannot use generic type entry[V any] without instantiation`.
+- **Cause:** Trying to use the generic struct in a non-generic context.
+- **Fix:** Ensured all operations were performed within the `Store[V]` methods where the type `V` is defined.
+
+**4. The "Wrong Eviction Order" Bug**
+- **Error:** Cache was exceeding capacity by one item.
+- **Cause:** Eviction check was happening *before* the new item was added.
+- **Fix:** Moved the capacity check to occur *after* the `PushFront` operation.
+
+#### 🏆 Final Result of Stage 3
+- A fully functional LRU cache that automatically evicts the least recently used items.
+- **Success Metric:** Verified that adding items beyond capacity correctly removes the oldest item.
+- **Key takeaway:** Mastered the use of `container/list` and the pattern of combining two data structures to optimize for both speed and order.
