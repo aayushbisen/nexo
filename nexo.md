@@ -20,7 +20,12 @@ Nexo is a high-performance, type-safe, network-accessible in-memory key-value st
 
 ### Stage 2: The Wire (Networking)
 - **Goal:** Make the store accessible over TCP.
-- **Status:** 📅 Pending
+- **Status:** ✅ Completed
+- **Notes:** 
+    - *Focus: TCP Sockets, Protocol Design, and Network Concurrency.*
+    - *Key Learning: Using `bufio.Scanner` for line-by-line command reading.*
+    - *Key Learning: Implementing a text-based protocol (SET/GET/DEL) using `strings.Fields`.*
+    - *Crucial Discovery: The difference between `return` (disconnects client) and `continue` (allows client to retry) in connection handlers.*
 
 ### Stage 3: The Memory Limit (LRU)
 - **Goal:** Implement an LRU eviction policy to prevent memory overflow.
@@ -57,3 +62,31 @@ The goal was to create a store that could hold any value type while maintaining 
 - A fully functional, type-safe generic store.
 - **Success Metric:** Verified with `main.go` using both `Store[string]` and `Store[int]`.
 - **Key takeaway:** Mastered Go Generics and the correct implementation of a thread-safe shared resource.
+
+### [2026-05-06] Stage 2: The Wire (Network Access)
+The goal was to transform the local store into a network server that accepts TCP connections and processes text commands.
+
+#### 🚩 The Struggle & The Solutions
+
+**1. The "Case Sensitivity" Trap**
+- **Error:** Compilation errors when accessing struct fields (e.g., `s.port` vs `s.Port`).
+- **Fix:** Ensured consistent use of exported (Uppercase) fields when accessing them from other packages.
+
+**2. The "One-and-Done" Disconnect**
+- **Error:** The server would close the connection immediately if the user made a typo in a command.
+- **Cause:** Used `return` instead of `continue` in the command switch block.
+- **Fix:** Changed `return` to `continue`, allowing the loop to persist and the client to try again.
+
+**3. The "Silent Server" Problem**
+- **Error:** Errors were printed to the server's terminal but not sent to the client.
+- **Fix:** Replaced `fmt.Printf` with `io.WriteString(conn, ...)` to send error messages back over the network.
+
+**4. The "Missing Newline" Hang**
+- **Error:** Client (netcat) didn't display responses until the connection closed.
+- **Cause:** Missing `\n` at the end of network responses.
+- **Fix:** Added `\n` to all `io.WriteString` and `fmt.Fprintf` calls to signal the end of a response line.
+
+#### 🏆 Final Result of Stage 2
+- A concurrent TCP server that supports SET, GET, and DEL commands.
+- **Success Metric:** Verified via `nc localhost 9090` with successful data persistence and error handling.
+- **Key takeaway:** Mastered the basics of TCP networking, stream parsing with `bufio`, and the importance of the "Request-Response" cycle in network protocols.
