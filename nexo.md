@@ -68,6 +68,9 @@ The goal was to create a store that could hold any value type while maintaining 
 - **Success Metric:** Verified with `main.go` using both `Store[string]` and `Store[int]`.
 - **Key takeaway:** Mastered Go Generics and the correct implementation of a thread-safe shared resource.
 
+### 🧠 Conceptual Breakthroughs: Stage 1
+- **The Blueprint Analogy**: Understood that generics are blueprints, not real types, and must be "instantiated" (given a concrete type) before they can be used to allocate memory.
+
 ### [2026-05-06] Stage 2: The Wire (Network Access)
 The goal was to transform the local store into a network server that accepts TCP connections and processes text commands.
 
@@ -95,6 +98,11 @@ The goal was to transform the local store into a network server that accepts TCP
 - A concurrent TCP server that supports SET, GET, and DEL commands.
 - **Success Metric:** Verified via `nc localhost 9090` with successful data persistence and error handling.
 - **Key takeaway:** Mastered the basics of TCP networking, stream parsing with `bufio`, and the importance of the "Request-Response" cycle in network protocols.
+
+### 🧠 Conceptual Breakthroughs: Stage 2
+- **The "Sipping" Analogy**: Learned that `bufio` acts as a "glass" for a data "tank," reducing expensive system calls by reading chunks of data into memory.
+- **The "Boundary" Concept**: Understood that TCP is a stream, not a packet system, making delimiters like `\n` essential for the receiver to identify a complete message.
+- **The "Attentive Worker"**: Discovered the power of `for { select { ... } }` to allow a goroutine to be interrupted by a control signal while waiting for data.
 
 ### [2026-05-06] Stage 3: The Memory Limit (LRU Engine)
 The goal was to prevent memory overflow by implementing a Least Recently Used (LRU) eviction policy.
@@ -124,3 +132,44 @@ The goal was to prevent memory overflow by implementing a Least Recently Used (L
 - A fully functional LRU cache that automatically evicts the least recently used items.
 - **Success Metric:** Verified that adding items beyond capacity correctly removes the oldest item.
 - **Key takeaway:** Mastered the use of `container/list` and the pattern of combining two data structures to optimize for both speed and order.
+
+### 🧠 Conceptual Breakthroughs: Stage 3
+- **The "Mystery Box" (Reflection)**: Learned that `interface{}` (any) is a box that hides the underlying type, requiring a "Type Assertion" to safely retrieve the original struct.
+- **The "Library Catalog" (LRU)**: Understood the hybrid Map+List architecture—using the map as a GPS for instant lookup and the list as a timeline for access order.
+- **Symmetry in Concurrency**: Realized that any change to a shared resource (like the LRU list) must be applied consistently across all methods (`Set`, `Get`, `Delete`) to prevent state corruption.
+
+---
+
+## 📉 The Mistake Log (Lessons Learned)
+
+This section tracks the recurring patterns of errors encountered and the architectural shifts needed to fix them.
+
+### 1. Control Flow: `return` vs `continue`
+- **The Mistake:** Using `return` inside a `select` or `for` loop when an error occurs.
+- **The Result:** The entire worker goroutine died, closing the connection to the client immediately.
+- **The Fix:** Use `continue`. This skips the current faulty request but keeps the worker alive to process the next one.
+
+### 2. I/O Direction: `fmt.Printf` vs `io.WriteString`
+- **The Mistake:** Printing error messages to the server console instead of the network socket.
+- **The Result:** The server operator saw the error, but the client was left hanging with no response.
+- **The Fix:** Always use the `net.Conn` (via `io.WriteString`) to communicate errors back to the client.
+
+### 3. Map Lifecycle: Declaration vs Initialization
+- **The Mistake:** Declaring a map in a struct (`data map[string]V`) but forgetting to `make()` it.
+- **The Result:** Immediate panic on first write (assignment to entry in nil map).
+- **The Fix:** Implement a `New()` constructor to ensure all internal data structures are allocated before use.
+
+### 4. Generics: The "Blueprint" Error
+- **The Mistake:** Trying to use a generic type `entry[V]` in a non-generic context.
+- **The Result:** `cannot use generic type ... without instantiation`.
+- **The Fix:** Realized that generic types must be "instantiated" with a concrete type (like `entry[string]`) or used within a function that is also generic.
+
+### 5. Concurrency: The "Symmetry" Trap
+- **The Mistake:** Fixing a bug in `Get` but forgetting to apply the same logic to `Set` or `Delete`.
+- **The Result:** Inconsistent behavior (e.g., `Get` refreshes the LRU order, but `Set` doesn't).
+- **The Fix:** Always review all methods that touch the same shared resource (`S.data` and `S.list`) whenever a logic change is made.
+
+### 6. Networking: The "Silence" Problem
+- **The Mistake:** Sending responses without a trailing newline (`\n`).
+- **The Result:** Clients (like `nc`) didn't display the response because they were waiting for a line-ending signal.
+- **The Fix:** Always append `\n` to network responses to signal a complete message.
