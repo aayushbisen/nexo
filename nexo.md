@@ -38,11 +38,12 @@ Nexo is a high-performance, type-safe, network-accessible in-memory key-value st
 
 ### Stage 4: The Cluster (Distribution)
 - **Goal:** Allow multiple Nexo nodes to sync data.
-- **Status:** 🚧 In Progress (Hash Ring Implementation)
+- **Status:** ✅ Completed
 - **Notes:** 
-    - *Focus: Consistent Hashing and Distribution.*
-    - *Key Learning: Using `crc32` for consistent hashing and `sort.Search` for binary search on the hash ring.*
-    - *Architectural Pattern: The Coordinator-Worker model where a single entry point distributes requests based on a hash ring.*
+    - *Focus: Consistent Hashing and Distributed Routing.*
+    - *Key Learning: Implementing a Hash Ring to distribute keys across multiple servers.*
+    - *Architectural Pattern: The Coordinator-Worker model. The Coordinator acts as a proxy that forwards requests to the correct worker based on the ring.*
+    - *Concurrency: Managing multiple TCP connections (Client $\rightarrow$ Coordinator $\rightarrow$ Worker).*
 
 ---
 
@@ -137,6 +138,33 @@ The goal was to prevent memory overflow by implementing a Least Recently Used (L
 - **Success Metric:** Verified that adding items beyond capacity correctly removes the oldest item.
 - **Key takeaway:** Mastered the use of `container/list` and the pattern of combining two data structures to optimize for both speed and order.
 
+### [2026-05-06] Stage 4: The Cluster (Distributed Routing)
+The goal was to evolve Nexo from a single server to a distributed cluster where requests are routed to specific nodes using Consistent Hashing.
+
+#### 🚩 The Struggle & The Solutions
+
+**1. The "Symmetry" of the Ring**
+- **Challenge:** Correcting the `sort.Slice` logic to sort by hash values rather than indices.
+- **Fix:** Changed the comparison to `r.nodes[i] < r.nodes[j]`, ensuring the ring is logically ordered.
+
+**2. The "Proxy" Connection Leak**
+- **Error:** Using `defer workerConn.Close()` inside a loop in the Coordinator.
+- **Cause:** Defers only run when the function returns, causing thousands of open connections to workers.
+- **Fix:** Manually called `workerConn.Close()` immediately after the response was relayed to the client.
+
+**3. The "Fake Success" Response**
+- **Error:** Sending `OK` to the client before the worker had actually confirmed the operation.
+- **Fix:** Moved the response logic to the end of the relay process, forwarding the worker's actual response back to the client.
+
+**4. The "Address vs Port" Confusion**
+- **Error:** Attempting to `net.Dial` using only a port number.
+- **Fix:** Standardized on using full addresses (e.g., `localhost:9091`) in the Ring, while using port integers for the Server listeners.
+
+#### 🏆 Final Result of Stage 4
+- A fully functioning distributed system with a Coordinator and multiple Worker nodes.
+- **Success Metric:** Verified via `nc` that keys are correctly routed to different workers and retrieved accurately.
+- **Key takeaway:** Mastered the "Coordinator" pattern and the implementation of Consistent Hashing to achieve scalability and stability.
+
 ### 🧠 Conceptual Breakthroughs: Stage 3
 - **The "Mystery Box" (Reflection)**: Learned that `interface{}` (any) is a box that hides the underlying type, requiring a "Type Assertion" to safely retrieve the original struct.
 - **The "Library Catalog" (LRU)**: Understood the hybrid Map+List architecture—using the map as a GPS for instant lookup and the list as a timeline for access order.
@@ -187,3 +215,13 @@ This section tracks the recurring patterns of errors encountered and the archite
 - **The Mistake:** Declaring a map in the `Ring` struct but not initializing it with `make()`.
 - **The Result:** Panic on the first `AddNode` call (assignment to entry in nil map).
 - **The Fix:** Implement a `New()` constructor to ensure the `nodeMap` is allocated before use.
+
+### 9. The "Proxy" Connection Leak
+- **The Mistake:** Using `defer conn.Close()` inside a loop that handles multiple requests.
+- **The Result:** Connections to worker servers stayed open until the Coordinator itself crashed, leading to "too many open files" errors.
+- **The Fix:** Explicitly call `.Close()` on the worker connection immediately after the response is relayed.
+
+### 10. Premature Response
+- **The Mistake:** Sending a success response to the client before the worker server actually processed the request.
+- **The Result:** The client received an `OK` even if the worker failed or crashed.
+- **The Fix:** Wait for the worker's response and relay that exact response back to the client.
