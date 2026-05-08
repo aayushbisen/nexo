@@ -38,7 +38,11 @@ Nexo is a high-performance, type-safe, network-accessible in-memory key-value st
 
 ### Stage 4: The Cluster (Distribution)
 - **Goal:** Allow multiple Nexo nodes to sync data.
-- **Status:** 📅 Pending
+- **Status:** 🚧 In Progress (Hash Ring Implementation)
+- **Notes:** 
+    - *Focus: Consistent Hashing and Distribution.*
+    - *Key Learning: Using `crc32` for consistent hashing and `sort.Search` for binary search on the hash ring.*
+    - *Architectural Pattern: The Coordinator-Worker model where a single entry point distributes requests based on a hash ring.*
 
 ---
 
@@ -173,3 +177,13 @@ This section tracks the recurring patterns of errors encountered and the archite
 - **The Mistake:** Sending responses without a trailing newline (`\n`).
 - **The Result:** Clients (like `nc`) didn't display the response because they were waiting for a line-ending signal.
 - **The Fix:** Always append `\n` to network responses to signal a complete message.
+
+### 7. Sorting: Indices vs. Values
+- **The Mistake:** Using `return i < j` inside `sort.Slice`.
+- **The Result:** The slice was "sorted" by its indices rather than the actual hash values, breaking the hash ring logic.
+- **The Fix:** Compare the actual values at those indices: `r.nodes[i] < r.nodes[j]`.
+
+### 8. Ring Lifecycle: Missing Initialization
+- **The Mistake:** Declaring a map in the `Ring` struct but not initializing it with `make()`.
+- **The Result:** Panic on the first `AddNode` call (assignment to entry in nil map).
+- **The Fix:** Implement a `New()` constructor to ensure the `nodeMap` is allocated before use.
