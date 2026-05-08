@@ -1,13 +1,15 @@
 package main
 
 import (
+	"fmt"
+	"nexo/internal/hashring"
 	"nexo/internal/network"
 	"nexo/internal/store"
 )
 
 func main() {
 	// fmt.Println("Nexo Cache Starting...")
-	ss := store.New[string]()
+	// ss := store.New[string]()
 	// s.Set("name", "aayush")
 	// val, ok := s.Get("name")
 	// if ok {
@@ -28,6 +30,25 @@ func main() {
 	// 	fmt.Printf("My age is %d", val4)
 	// }
 
-	s := network.Server{St: ss, Port: 9090}
-	s.Start()
+	// s := network.Server{St: ss, Port: 9090}
+	// s.Start()
+
+	workers := []int{9091, 9092, 9093, 9094}
+
+	ss := store.New[string](100)
+
+	for _, port := range workers {
+		go func() {
+			s := network.Server{St: ss, Port: port}
+			s.Start()
+		}()
+	}
+
+	hr := hashring.New()
+	for _, port2 := range workers {
+		hr.AddNode(fmt.Sprintf("localhost:%d", port2))
+	}
+
+	c := network.Coordinator{Port: 9090, Ring: hr}
+	c.Start()
 }
