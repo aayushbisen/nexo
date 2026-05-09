@@ -2,7 +2,9 @@ package hashring
 
 import (
 	"hash/crc32"
+	"slices"
 	"sort"
+	"strconv"
 )
 
 type Ring struct {
@@ -19,11 +21,16 @@ func New() *Ring {
 	}
 }
 
-func (r *Ring) AddNode(nodeAddr string) {
-	hashed := crc32.ChecksumIEEE([]byte(nodeAddr))
-	r.nodes = append(r.nodes, hashed)
-	sort.Slice(r.nodes, func(i, j int) bool { return int(r.nodes[i]) < int(r.nodes[j]) })
-	r.nodeMap[hashed] = nodeAddr
+func (r *Ring) AddNode(nodeAddr string, replicas int) {
+	if replicas <= 0 {
+		panic("hashring: replicas must be > 0")
+	}
+	for u := range replicas {
+		hashed := crc32.ChecksumIEEE([]byte(nodeAddr + "$" + strconv.Itoa(u)))
+		r.nodes = append(r.nodes, hashed)
+		r.nodeMap[hashed] = nodeAddr
+	}
+	slices.Sort(r.nodes)
 }
 
 func (r *Ring) GetNode(key string) string {

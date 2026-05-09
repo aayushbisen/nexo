@@ -35,9 +35,8 @@ func main() {
 
 	workers := []int{9091, 9092, 9093, 9094}
 
-	ss := store.New[string](100)
-
 	for _, port := range workers {
+		ss := store.New[string](100)
 		go func() {
 			s := network.Server{St: ss, Port: port}
 			s.Start()
@@ -46,7 +45,7 @@ func main() {
 
 	hr := hashring.New()
 	for _, port2 := range workers {
-		hr.AddNode(fmt.Sprintf("localhost:%d", port2))
+		hr.AddNode(fmt.Sprintf("localhost:%d", port2), 5)
 	}
 
 	c := network.Coordinator{Port: 9090, Ring: hr}
