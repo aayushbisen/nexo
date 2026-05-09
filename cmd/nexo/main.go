@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-
+	fmt.Println("NEXO running ✨")
 	ctx, stop := signal.NotifyContext(
 		context.Background(), syscall.SIGINT, syscall.SIGTERM)
 
