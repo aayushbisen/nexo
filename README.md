@@ -50,6 +50,16 @@ internal/
   hashring/ring.go        # Consistent hash ring
 ```
 
+## Make Commands
+
+```bash
+make build   # compile the binary to ./bin/nexo
+make run     # build and run the cluster
+make test    # run all tests
+make format  # format all Go code
+make clean   # remove build artifacts
+```
+
 ## Running Tests
 
 ```bash
