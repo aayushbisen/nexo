@@ -48,6 +48,16 @@ Nexo is a high-performance, type-safe, network-accessible in-memory key-value st
     - *Key Learning: `slices.Sort` vs `sort.Slice` — The modern `slices.Sort` is cleaner and requires no comparison function for primitive types.*
     - *Key Learning: `range` over integers (Go 1.22+) — `for i := range replicas` replaces the manual `i < replicas` pattern.*
 
+### Stage 5: Graceful Shutdown
+- **Goal:** Allow the cluster to shut down cleanly on SIGINT/SIGTERM without losing in-flight data.
+- **Status:** ✅ Completed
+- **Notes:**
+    - *Technique: `signal.NotifyContext` binds OS signals directly to a cancellable context — no manual channel handling needed.*
+    - *Technique: `listener.Close()` unblocks `Accept()` and causes it to return an error, allowing the accept loop to exit.*
+    - *Pattern: A goroutine sits on `<-ctx.Done()` and calls `listener.Close()` — the goroutine is spawned once, outside the accept loop.*
+    - *Pattern: `wg.Add(1)` in `Start()` **before** `go handleConnection(...)` — never inside the goroutine itself.*
+    - *Key Learning: Counter tracing — walk every `Add` and `Done` from main.go to verify the WaitGroup reaches zero.*
+
 ---
 
 ## 📝 Session Logs
@@ -173,6 +183,24 @@ The goal was to evolve Nexo from a single server to a distributed cluster where 
 - **The "Library Catalog" (LRU)**: Understood the hybrid Map+List architecture—using the map as a GPS for instant lookup and the list as a timeline for access order.
 - **Symmetry in Concurrency**: Realized that any change to a shared resource (like the LRU list) must be applied consistently across all methods (`Set`, `Get`, `Delete`) to prevent state corruption.
 
+### [2026-05-09] Stage 5: Graceful Shutdown
+
+#### 🚩 The Struggle & The Solutions
+
+**1. The "Single-Select" Trap**
+- **Error:** The shutdown goroutine was spawned inside the accept loop, creating a new goroutine on every connection.
+- **Fix:** Moved the ctx goroutine outside the loop — one goroutine for the listener's lifetime.
+
+**2. WaitGroup: The "Too Late" Add**
+- **Error:** `wg.Add(1)` was inside `handleConnection`, not in `Start()` before `go handleConnection(...)`.
+- **Result:** A race window where a signal could arrive between the `go` and the `Add`, making that connection invisible to the WaitGroup.
+- **Fix:** Moved `wg.Add(1)` into `Start()` before the `go` statement.
+
+**3. WaitGroup: The Orphaned Add**
+- **Error:** An extra `wg.Add(1)` in `Coordinator.Start` with no matching `Done()`.
+- **Result:** WaitGroup counter never reached zero — `wg.Wait()` blocked forever.
+- **Fix:** Traced every Add/Done from main.go and removed the orphan.
+
 ---
 
 ## 📉 The Mistake Log (Lessons Learned)
@@ -233,6 +261,18 @@ This section tracks the recurring patterns of errors encountered and the archite
 - **The Mistake:** Using `fmt.Printf` to log warnings inside a library package (`hashring`).
 - **The Result:** The library had an unnecessary `fmt` import and printed to stdout, which is useless in production (nobody reads stdout from imports).
 - **The Fix:** A library function with nowhere to return an error should `panic()` with a clear message instead of printing silently. `fmt.Printf` became dead code after the switch.
-- **The Mistake:** Sending a success response to the client before the worker server actually processed the request.
-- **The Result:** The client received an `OK` even if the worker failed or crashed.
-- **The Fix:** Wait for the worker's response and relay that exact response back to the client.
+
+### 12. WaitGroup: "Add Before Go" Rule
+- **The Mistake:** Placing `wg.Add(1)` inside `handleConnection` instead of in `Start()` before the `go` keyword.
+- **The Result:** A race window where a signal could fire between `go handleConnection(...)` and `wg.Add(1)`, causing `wg.Wait()` to return before that connection finished draining.
+- **The Fix:** Always `wg.Add(1)` in the spawning function before `go`, never inside the spawned goroutine.
+
+### 13. WaitGroup: Forgot to Balance All Adds
+- **The Mistake:** Adding `wg.Add(1)` inside `Coordinator.Start` without a matching `defer wg.Done()`.
+- **The Result:** The WaitGroup counter was permanently +1, causing `wg.Wait()` to block forever on shutdown.
+- **The Fix:** Trace the full counter path for every `Add` and `Done`. Every `Add` must have exactly one matching `Done`.
+
+### 14. WaitGroup: Shared vs Separate Concerns
+- **The Mistake:** Using a single WaitGroup to track both listener lifecycle and connection draining without verifying the total balance.
+- **The Result:** Easy to introduce orphaned Adds or Dones when the two concerns overlap.
+- **The Fix:** Trace the counter from main.go through every goroutine. If the logic gets complex, use separate WaitGroups for different concerns.
