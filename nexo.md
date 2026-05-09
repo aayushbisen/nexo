@@ -44,6 +44,9 @@ Nexo is a high-performance, type-safe, network-accessible in-memory key-value st
     - *Key Learning: Implementing a Hash Ring to distribute keys across multiple servers.*
     - *Architectural Pattern: The Coordinator-Worker model. The Coordinator acts as a proxy that forwards requests to the correct worker based on the ring.*
     - *Concurrency: Managing multiple TCP connections (Client $\rightarrow$ Coordinator $\rightarrow$ Worker).*
+    - *Enhancement: Virtual Nodes — Each physical server is represented by multiple virtual nodes on the ring (configurable via `replicas`). This improves key distribution uniformity and reduces the impact of node failures.*
+    - *Key Learning: `slices.Sort` vs `sort.Slice` — The modern `slices.Sort` is cleaner and requires no comparison function for primitive types.*
+    - *Key Learning: `range` over integers (Go 1.22+) — `for i := range replicas` replaces the manual `i < replicas` pattern.*
 
 ---
 
@@ -222,6 +225,14 @@ This section tracks the recurring patterns of errors encountered and the archite
 - **The Fix:** Explicitly call `.Close()` on the worker connection immediately after the response is relayed.
 
 ### 10. Premature Response
+- **The Mistake:** Sending a success response to the client before the worker server actually processed the request.
+- **The Result:** The client received an `OK` even if the worker failed or crashed.
+- **The Fix:** Wait for the worker's response and relay that exact response back to the client.
+
+### 11. Library Should Not Print
+- **The Mistake:** Using `fmt.Printf` to log warnings inside a library package (`hashring`).
+- **The Result:** The library had an unnecessary `fmt` import and printed to stdout, which is useless in production (nobody reads stdout from imports).
+- **The Fix:** A library function with nowhere to return an error should `panic()` with a clear message instead of printing silently. `fmt.Printf` became dead code after the switch.
 - **The Mistake:** Sending a success response to the client before the worker server actually processed the request.
 - **The Result:** The client received an `OK` even if the worker failed or crashed.
 - **The Fix:** Wait for the worker's response and relay that exact response back to the client.

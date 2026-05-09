@@ -12,7 +12,7 @@ Client → Coordinator (Hash Ring) → Worker Node(s)
 
 - **`internal/store`** — Thread-safe generic LRU cache (`map` + `container/list`).
 - **`internal/network`** — TCP server and coordinator proxy.
-- **`internal/hashring`** — CRC32-based consistent hashing ring for key routing.
+- **`internal/hashring`** — CRC32-based consistent hashing ring with virtual nodes for key routing.
 
 ## Quick Start
 
@@ -23,7 +23,7 @@ go run cmd/nexo/main.go
 
 This starts:
 - **Coordinator** on port `9090`
-- **4 Workers** on ports `9091–9094`
+- **4 Workers** on ports `9091–9094` (each with 5 virtual nodes)
 
 ## Protocol
 
