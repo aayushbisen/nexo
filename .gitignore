@@ -1,4 +1,5 @@
 bin/
-cpu.prof
+*.prof
+*.out
 *.exe
 .pi/
