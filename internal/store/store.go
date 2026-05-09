@@ -38,7 +38,7 @@ func (s *Store[V]) Set(key string, value V) {
 	element, ok := s.data[key]
 	if ok {
 		// update value
-		element.Value = entry[V]{key: key, value: value}
+		element.Value = &entry[V]{key: key, value: value}
 		s.list.MoveToFront(element)
 	} else {
 		e := &entry[V]{key: key, value: value}

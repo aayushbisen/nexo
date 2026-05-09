@@ -14,6 +14,7 @@ import (
 type Coordinator struct {
 	Port int
 	Ring *hashring.Ring
+	Dial func(network, addr string) (net.Conn, error)
 }
 
 func New() *Coordinator {
@@ -66,7 +67,7 @@ func (c *Coordinator) handleConnection(conn net.Conn, wg *sync.WaitGroup) {
 			continue
 		}
 		sA := c.Ring.GetNode(key)
-		workerConn, err := net.Dial("tcp", sA)
+		workerConn, err := c.Dial("tcp", sA)
 		if err != nil {
 			io.WriteString(conn, "Error: Worker unavailable\n")
 			continue
@@ -88,6 +89,9 @@ func (c *Coordinator) handleConnection(conn net.Conn, wg *sync.WaitGroup) {
 
 func (c *Coordinator) Start(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
+	if c.Dial == nil {
+		c.Dial = net.Dial
+	}
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", c.Port))
 	if err != nil {
 		return
