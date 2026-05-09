@@ -11,8 +11,8 @@ Client → Coordinator (Hash Ring) → Worker Node(s)
 ```
 
 - **`internal/store`** — Thread-safe generic LRU cache (`map` + `container/list`).
-- **`internal/network`** — TCP server and coordinator proxy.
-- **`internal/hashring`** — CRC32-based consistent hashing ring with virtual nodes for key routing.
+- **`internal/network`** — TCP server and coordinator proxy. Supports graceful shutdown via `signal.NotifyContext` and `sync.WaitGroup`.
+- **`internal/hashring`** — CRC32-based consistent hashing ring with virtual nodes (`replicas` configurable per node) for even key distribution.
 
 ## Quick Start
 
