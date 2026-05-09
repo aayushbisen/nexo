@@ -58,6 +58,15 @@ Nexo is a high-performance, type-safe, network-accessible in-memory key-value st
     - *Pattern: `wg.Add(1)` in `Start()` **before** `go handleConnection(...)` — never inside the goroutine itself.*
     - *Key Learning: Counter tracing — walk every `Add` and `Done` from main.go to verify the WaitGroup reaches zero.*
 
+### Stage 6: Testing & Bug Hunt
+- **Goal:** Achieve near-100% test coverage and catch latent bugs.
+- **Status:** ✅ Completed
+- **Notes:**
+    - *Technique: `net.Pipe()` creates in-memory connection pairs for testing TCP handlers without opening real ports.*
+    - *Technique: Injectable `Dial` function allows the coordinator to be tested without real worker servers.*
+    - *Coverage: **94.9%** total across all packages — only the `net.Listen` error path remains uncovered.*
+    - *Tests written: 38 unit tests across hashring (11), store (9), server (8), coordinator (10).*
+
 ---
 
 ## 📝 Session Logs

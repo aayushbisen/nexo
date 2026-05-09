@@ -50,6 +50,15 @@ internal/
   hashring/ring.go        # Consistent hash ring
 ```
 
+## Running Tests
+
+```bash
+make test        # run all tests
+make test -race  # check for race conditions
+```
+
+38 unit tests across all packages. **94.9% coverage.**
+
 ## Stack
 
 - Go 1.26+
