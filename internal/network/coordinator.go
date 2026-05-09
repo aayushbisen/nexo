@@ -2,11 +2,13 @@ package network
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"net"
 	"nexo/internal/hashring"
 	"strings"
+	"sync"
 )
 
 type Coordinator struct {
@@ -18,9 +20,9 @@ func New() *Coordinator {
 	return &Coordinator{}
 }
 
-func (c *Coordinator) handleConnection(conn net.Conn) {
+func (c *Coordinator) handleConnection(conn net.Conn, wg *sync.WaitGroup) {
 	defer conn.Close()
-
+	defer wg.Done()
 	sc := bufio.NewScanner(conn)
 
 	for sc.Scan() {
@@ -84,19 +86,26 @@ func (c *Coordinator) handleConnection(conn net.Conn) {
 	}
 }
 
-func (c *Coordinator) Start() {
+func (c *Coordinator) Start(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", c.Port))
 	if err != nil {
 		return
 	}
+
+	go func() {
+		<-ctx.Done()
+		listener.Close()
+	}()
+
 	for {
 		conn, err := listener.Accept()
 
 		if err != nil {
 			return
 		}
-
-		go c.handleConnection(conn)
-
+		wg.Add(1)
+		go c.handleConnection(conn, wg)
 	}
+
 }

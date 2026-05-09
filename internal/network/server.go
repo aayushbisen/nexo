@@ -2,11 +2,13 @@ package network
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"net"
 	"nexo/internal/store"
 	"strings"
+	"sync"
 )
 
 type Server struct {
@@ -14,9 +16,9 @@ type Server struct {
 	Port int
 }
 
-func (s *Server) handleConnection(conn net.Conn) {
+func (s *Server) handleConnection(conn net.Conn, wg *sync.WaitGroup) {
 	defer conn.Close()
-
+	defer wg.Done()
 	sc := bufio.NewScanner(conn)
 
 	for sc.Scan() {
@@ -58,19 +60,25 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}
 }
 
-func (s *Server) Start() {
+func (s *Server) Start(ctx context.Context, wg *sync.WaitGroup) {
+	defer wg.Done()
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", s.Port))
 	if err != nil {
 		return
 	}
+	go func() {
+		<-ctx.Done()
+		listener.Close()
+	}()
 	for {
+
 		conn, err := listener.Accept()
 
 		if err != nil {
 			return
 		}
-
-		go s.handleConnection(conn)
+		wg.Add(1)
+		go s.handleConnection(conn, wg)
 
 	}
 }
