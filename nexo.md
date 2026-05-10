@@ -67,6 +67,20 @@ Nexo is a high-performance, type-safe, network-accessible in-memory key-value st
     - *Coverage: **94.9%** total across all packages — only the `net.Listen` error path remains uncovered.*
     - *Tests written: 38 unit tests across hashring (11), store (9), server (8), coordinator (10).*
 
+### Stage 7: RESP Protocol
+- **Goal:** Replace ad-hoc plain text with a proper protocol (RESP — REdis Serialization Protocol).
+- **Status:** ✅ Completed
+- **Notes:**
+    - *Focus: Protocol Design, Dual-Mode Parsing, Framing.*
+    - *Key Learning: RESP uses a type system encoded in the first byte — `+` for simple strings, `-` for errors, `$` for bulk strings, `*` for arrays.*
+    - *Key Learning: Bulk strings are length-prefixed (`$3\r\nbar\r\n`) — you read exactly N bytes, no delimiter needed, no escaping issues.*
+    - *Technique: `Peek(1)` allows a single `bufio.Reader` to dispatch between RESP and plain text without consuming data.*
+    - *Architecture: Coordinator acts as a protocol bridge — clients can use RESP or plain text, internal worker communication is always RESP.*
+- **Files:**
+    - `internal/resp/resp.go` — Value type (Kind, Str, Integer, Array), Writer (`Write`), Reader (`Read`).
+    - Changed: `internal/network/server.go` — dual-mode connection handler.
+    - Changed: `internal/network/coordinator.go` — dual-mode client handler, RESP-only worker forwarding.
+
 ---
 
 ## 📝 Session Logs
@@ -160,6 +174,11 @@ The goal was to prevent memory overflow by implementing a Least Recently Used (L
 - **Success Metric:** Verified that adding items beyond capacity correctly removes the oldest item.
 - **Key takeaway:** Mastered the use of `container/list` and the pattern of combining two data structures to optimize for both speed and order.
 
+### 🧠 Conceptual Breakthroughs: Stage 3
+- **The "Mystery Box" (Reflection)**: Learned that `interface{}` (any) is a box that hides the underlying type, requiring a "Type Assertion" to safely retrieve the original struct.
+- **The "Library Catalog" (LRU)**: Understood the hybrid Map+List architecture—using the map as a GPS for instant lookup and the list as a timeline for access order.
+- **Symmetry in Concurrency**: Realized that any change to a shared resource (like the LRU list) must be applied consistently across all methods (`Set`, `Get`, `Delete`) to prevent state corruption.
+
 ### [2026-05-06] Stage 4: The Cluster (Distributed Routing)
 The goal was to evolve Nexo from a single server to a distributed cluster where requests are routed to specific nodes using Consistent Hashing.
 
@@ -187,10 +206,9 @@ The goal was to evolve Nexo from a single server to a distributed cluster where 
 - **Success Metric:** Verified via `nc` that keys are correctly routed to different workers and retrieved accurately.
 - **Key takeaway:** Mastered the "Coordinator" pattern and the implementation of Consistent Hashing to achieve scalability and stability.
 
-### 🧠 Conceptual Breakthroughs: Stage 3
-- **The "Mystery Box" (Reflection)**: Learned that `interface{}` (any) is a box that hides the underlying type, requiring a "Type Assertion" to safely retrieve the original struct.
-- **The "Library Catalog" (LRU)**: Understood the hybrid Map+List architecture—using the map as a GPS for instant lookup and the list as a timeline for access order.
-- **Symmetry in Concurrency**: Realized that any change to a shared resource (like the LRU list) must be applied consistently across all methods (`Set`, `Get`, `Delete`) to prevent state corruption.
+### 🧠 Conceptual Breakthroughs: Stage 4
+- **The "Hash Ring"**: Understood that consistent hashing isn't about distributing keys evenly — it's about minimizing remapping when nodes join or leave. Only the keys on the affected arc need to move.
+- **The "Virtual Node"**: Realized that adding N virtual copies of each physical node on the ring smooths out distribution skew without changing the hash function.
 
 ### [2026-05-09] Stage 5: Graceful Shutdown
 
@@ -209,6 +227,72 @@ The goal was to evolve Nexo from a single server to a distributed cluster where 
 - **Error:** An extra `wg.Add(1)` in `Coordinator.Start` with no matching `Done()`.
 - **Result:** WaitGroup counter never reached zero — `wg.Wait()` blocked forever.
 - **Fix:** Traced every Add/Done from main.go and removed the orphan.
+
+### 🧠 Conceptual Breakthroughs: Stage 5
+- *No new conceptual breakthroughs — this stage was purely about technique and shutdown mechanics.*
+
+### [2026-05-10] Stage 6: Testing & Bug Hunt
+The goal was to lock down the codebase with thorough tests and catch latent bugs before adding new features.
+
+#### 🚩 The Struggle & The Solutions
+
+**1. The "Pointer vs Value" Store Bug**
+- **Problem:** Store `Set` update path panicked on `Get`. Failed assertion.
+- **Cause:** `Set` retyped `0` entry from `entry[V]` to `*entry[V]`, pointing `list.Element.Value` at a new pointer while the map still held the old non-pointer value.
+- **Fix:** Replaced `entry[V]` with `*entry[V]` – both map and list now point at the same struct.
+
+**2. Testable TCP Without Real Ports**
+- **Problem:** Tests requiring live TCP connections are flaky and slow, plus tests conflict when ports overlap.
+- **Solution:** `net.Pipe()` creates in-memory `(conn1, conn2)` pairs. Both sides behave like real TCP `net.Conn` – perfect for testing connection handlers.
+
+**3. Testable Coordinator Without Real Workers**
+- **Problem:** Coordinator tests need worker servers running.
+- **Solution:** Made `Dial` an injectable field on `Coordinator` (`Dial func(network, addr string) (net.Conn, error)`). Tests replace it with `net.Pipe()` and mock worker goroutines.
+
+**4. The Orphaned WaitGroup Add**
+- **Problem:** Shutdown blocked forever in coordinator tests.
+- **Cause:** Coordinator's `Start` had a `wg.Add(1)` for a goroutine that called `Done()` only on error, but on success neither `Done` nor `Add` ran.
+- **Fix:** Traced the exact Add-Done path and removed the orphaned Add.
+
+#### 🏆 Final Result of Stage 6
+- **38 tests** across hashring (11), store (9), server (8), coordinator (10).
+- **94.9% coverage** – only `net.Listen` error path uncovered.
+
+### 🧠 Conceptual Breakthroughs: Stage 6
+- *No conceptual breakthroughs this stage — it was purely about technique and testing discipline.*
+
+### [2026-05-10] Stage 7: RESP Protocol
+The goal was to replace the ad-hoc plain text protocol with a proper framing protocol (RESP) so Nexo speaks a standard wire format.
+
+#### 🚩 The Struggle & The Solutions
+
+**1. The "Peek vs Read" Confusion**
+- **Problem:** `bufio.Scanner` doesn't support `Peek`. Switched to `bufio.Reader`, but `Peek(1)` was initially confusing — it *inspects* without *consuming*.
+- **Solution:** Peek is a window into the buffer. Call `Read` or `ReadString` afterwards to advance past the peeked data. This is exactly what enables dual-mode dispatch.
+
+**2. The "Empty Line" Panic**
+- **Problem:** Plain text path crashed with index out of range on `listCmd[0]` when `ReadString('\n')` returned an empty string.
+- **Cause:** Leftover newlines in the TCP stream after a prior RESP message created a blank line.
+- **Fix:** Added `if len(listCmd) == 0 { continue }` as a guard.
+
+**3. The "Coordinator Protocol Bridge"**
+- **Problem:** Coordinator forwarded commands to workers as plain text, but workers now write RESP responses. The coordinator was parsing plain text responses from RESP writers.
+- **Solution:** Coordinator always sends RESP arrays to workers and always reads RESP responses with `resp.Read()`. Client-facing side retains dual-mode — the coordinator translates.
+
+**4. The "RESP Error Format"**
+- **Problem:** RESP errors need a `-` prefix (`-ERR message\r\n`), but simple string errors were being sent with the wrong format.
+- **Fix:** Used `resp.Value{Kind: '-', Str: msg}` for errors and `resp.Value{Kind: '+', Str: "OK"}` for success.
+
+#### 🏆 Final Result of Stage 7
+- A working RESP implementation with Reader and Writer.
+- Dual-mode servers (coordinator + workers) that accept RESP or plain text.
+- Coordinator translates between client format and internal RESP.
+- **Success Metric:** `printf '*2\r\n$3\r\nGET\r\n$1\r\na\r\n' | nc 9090` returns `$1\r\n1\r\n`.
+
+### 🧠 Conceptual Breakthroughs: Stage 7
+- **The "First Byte" Dispatch**: Realized that a protocol's type system can be encoded entirely in the first byte. Peek(1) is enough to know how to parse the rest — no multi-byte header needed.
+- **Length-Prefixed > Delimiter-Escaped**: Bulk strings with length prefixes (`$3\r\nbar\r\n`) are simpler than delimiter escaping — you know exactly how many bytes to read, no need to escape delimiters inside the data.
+- **The "Protocol Bridge" Pattern**: The coordinator isn't just routing data — it's translating between two formats. Internal consistency (always RESP) simplifies the worker-side code; the complexity is isolated in the bridge.
 
 ---
 
@@ -285,3 +369,12 @@ This section tracks the recurring patterns of errors encountered and the archite
 - **The Mistake:** Using a single WaitGroup to track both listener lifecycle and connection draining without verifying the total balance.
 - **The Result:** Easy to introduce orphaned Adds or Dones when the two concerns overlap.
 - **The Fix:** Trace the counter from main.go through every goroutine. If the logic gets complex, use separate WaitGroups for different concerns.
+
+### 15. Bufered Reader: The Stale Peek
+- **The Mistake:** Reading the first byte with `Peek(1)` for RESP detection, then trying to read the same data again with another call.
+- **The Fix:** Peek does NOT consume the data — you must call `Read` or `ReadString` afterwards to actually consume it. Use Peek only for inspection.
+- **Note:** This is why the dual-mode flow works: `Peek(1)` tells us if it's `*` (RESP) or not (plain text), then we either call `resp.Read(r)` or `r.ReadString('\n')` to consume the data.
+
+### 16. Protocol Translation: One Format, Two Clients
+- **The Mistake:** Sending plain text responses to RESP clients, causing the client to hang waiting for proper RESP framing.
+- **The Fix:** The coordinator must track which format the client used (`respMode` bool) and encode responses accordingly — `response.Write(conn)` for RESP, string extraction for plain text.
