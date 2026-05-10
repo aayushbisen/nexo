@@ -13,6 +13,7 @@ Client → Coordinator (Hash Ring) → Worker Node(s)
 - **`internal/store`** — Thread-safe generic LRU cache (`map` + `container/list`).
 - **`internal/network`** — TCP server and coordinator proxy. Supports graceful shutdown via `signal.NotifyContext` and `sync.WaitGroup`.
 - **`internal/hashring`** — CRC32-based consistent hashing ring with virtual nodes (`replicas` configurable per node) for even key distribution.
+- **`internal/resp`** — RESP (REdis Serialization Protocol) Value type, Writer, and Reader.
 
 ## Quick Start
 
@@ -27,7 +28,25 @@ This starts:
 
 ## Protocol
 
-Connect via `nc` or `telnet`:
+Two protocols supported on the same port. Detection is automatic via the first byte.
+
+### RESP (REdis Serialization Protocol)
+
+Use with `redis-cli` or raw `printf`:
+
+```bash
+# SET
+printf '*3\r\n$3\r\nSET\r\n$1\r\na\r\n$1\r\n1\r\n' | nc localhost 9090
+# +OK\r\n
+
+# GET
+printf '*2\r\n$3\r\nGET\r\n$1\r\na\r\n' | nc localhost 9090
+# $1\r\n1\r\n
+```
+
+### Plain Text (nc-compatible)
+
+Standard newline-delimited commands:
 
 ```
 nc localhost 9090
@@ -35,8 +54,6 @@ SET name nexo
 GET name
 DEL name
 ```
-
-Responses are newline-delimited (`OK`, value, or error).
 
 ## Structure
 
@@ -48,6 +65,7 @@ internal/
     server.go             # Worker TCP server
     coordinator.go        # Routing proxy
   hashring/ring.go        # Consistent hash ring
+  resp/resp.go            # RESP protocol type, reader, writer
 ```
 
 ## Make Commands
