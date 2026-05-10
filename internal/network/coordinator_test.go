@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"nexo/internal/hashring"
+	"nexo/internal/resp"
 	"sync"
 	"testing"
 )
@@ -50,14 +51,13 @@ func TestCoordinatorRelaysSetResponse(t *testing.T) {
 	wg.Add(1)
 	go c.handleConnection(server, &wg)
 
-	// Simulate worker response
+	// Simulate worker response (RESP)
 	go func() {
-		buf := bufio.NewReader(workerServer)
-		cmd, _ := buf.ReadString('\n')
-		if cmd != "SET key val\n" {
-			t.Errorf("worker got unexpected command: %q", cmd)
+		val, err := resp.Read(bufio.NewReader(workerServer))
+		if err != nil || len(val.Array) != 3 || val.Array[0].Str != "SET" || val.Array[1].Str != "key" || val.Array[2].Str != "val" {
+			t.Errorf("worker got unexpected command: %v", val)
 		}
-		workerServer.Write([]byte("OK\n"))
+		resp.Value{Kind: '+', Str: "OK"}.Write(workerServer)
 		workerServer.Close()
 	}()
 
@@ -83,12 +83,11 @@ func TestCoordinatorRelaysGetResponse(t *testing.T) {
 	go c.handleConnection(server, &wg)
 
 	go func() {
-		buf := bufio.NewReader(workerServer)
-		cmd, _ := buf.ReadString('\n')
-		if cmd != "GET key\n" {
-			t.Errorf("worker got unexpected command: %q", cmd)
+		val, err := resp.Read(bufio.NewReader(workerServer))
+		if err != nil || len(val.Array) != 2 || val.Array[0].Str != "GET" || val.Array[1].Str != "key" {
+			t.Errorf("worker got unexpected command: %v", val)
 		}
-		workerServer.Write([]byte("value\n"))
+		resp.Value{Kind: '$', Str: "value"}.Write(workerServer)
 		workerServer.Close()
 	}()
 
@@ -168,12 +167,11 @@ func TestCoordinatorRelaysDelResponse(t *testing.T) {
 	go c.handleConnection(server, &wg)
 
 	go func() {
-		buf := bufio.NewReader(workerServer)
-		cmd, _ := buf.ReadString('\n')
-		if cmd != "DEL key\n" {
-			t.Errorf("worker got unexpected command: %q", cmd)
+		val, err := resp.Read(bufio.NewReader(workerServer))
+		if err != nil || len(val.Array) != 2 || val.Array[0].Str != "DEL" || val.Array[1].Str != "key" {
+			t.Errorf("worker got unexpected command: %v", val)
 		}
-		workerServer.Write([]byte("OK\n"))
+		resp.Value{Kind: '+', Str: "OK"}.Write(workerServer)
 		workerServer.Close()
 	}()
 

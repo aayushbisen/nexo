@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"nexo/internal/hashring"
+	"nexo/internal/resp"
 	"strings"
 	"sync"
 )
@@ -24,66 +25,106 @@ func New() *Coordinator {
 func (c *Coordinator) handleConnection(conn net.Conn, wg *sync.WaitGroup) {
 	defer conn.Close()
 	defer wg.Done()
-	sc := bufio.NewScanner(conn)
+	r := bufio.NewReader(conn)
 
-	for sc.Scan() {
-		cmd := sc.Text()
-		listCmd := strings.Fields(cmd)
-		key := ""
-		switch listCmd[0] {
+	for {
+		first, err := r.Peek(1)
+		if err != nil {
+			break
+		}
+		var cmd string
+		var args []string
+		respMode := first[0] == '*'
+
+		if respMode {
+			val, err := resp.Read(r)
+			if err != nil {
+				break
+			}
+			if len(val.Array) < 1 {
+				continue
+			}
+			cmd = val.Array[0].Str
+			for _, a := range val.Array[1:] {
+				args = append(args, a.Str)
+			}
+		} else {
+			line, err := r.ReadString('\n')
+			if err != nil {
+				break
+			}
+			parts := strings.Fields(strings.TrimRight(line, "\r\n"))
+			if len(parts) == 0 {
+				continue
+			}
+			cmd = parts[0]
+			args = parts[1:]
+		}
+
+		switch cmd {
 		case "SET":
-			if len(listCmd) < 3 {
-				io.WriteString(conn, "Set command needs key and value to work\n")
+			if len(args) < 2 {
+				writeClientError(conn, "Set command needs key and value to work", respMode)
 				continue
 			}
-			key = listCmd[1]
-
-			// s.St.Set(listCmd[1], listCmd[2])
-			// io.WriteString(conn, "OK\n")
 		case "GET":
-			if len(listCmd) < 2 {
-				io.WriteString(conn, "Get command needs key to work\n")
+			if len(args) < 1 {
+				writeClientError(conn, "Get command needs key to work", respMode)
 				continue
 			}
-			key = listCmd[1]
-
-			// val, ok := s.St.Get(listCmd[1])
-			// if ok {
-			// 	fmt.Fprintf(conn, "%s\n", val)
-			// } else {
-			// 	io.WriteString(conn, "Error key not found\n")
-			// }
 		case "DEL":
-			if len(listCmd) < 2 {
-				io.WriteString(conn, "Delete command needs key to work\n")
+			if len(args) < 1 {
+				writeClientError(conn, "Delete command needs key to work", respMode)
 				continue
 			}
-			key = listCmd[1]
-
-			// s.St.Delete(listCmd[1])
-			// io.WriteString(conn, "OK\n")
 		default:
-			io.WriteString(conn, "Error Unknown command\n")
+			writeClientError(conn, "Error Unknown command", respMode)
 			continue
 		}
-		sA := c.Ring.GetNode(key)
-		workerConn, err := c.Dial("tcp", sA)
+
+		addr := c.Ring.GetNode(args[0])
+		workerConn, err := c.Dial("tcp", addr)
 		if err != nil {
-			io.WriteString(conn, "Error: Worker unavailable\n")
-			continue
-		}
-		// defer workerConn.Close()
-
-		fmt.Fprintf(workerConn, "%s\n", cmd)
-
-		resp, err := bufio.NewReader(workerConn).ReadString('\n')
-		if err != nil {
-			io.WriteString(conn, "Error: Worker response failed\n")
+			writeClientError(conn, "Error: Worker unavailable", respMode)
 			continue
 		}
 
-		io.WriteString(conn, resp)
+		wargs := make([]resp.Value, 0, 1+len(args))
+		wargs = append(wargs, resp.Value{Kind: '$', Str: cmd})
+		for _, a := range args {
+			wargs = append(wargs, resp.Value{Kind: '$', Str: a})
+		}
+		resp.Value{Kind: '*', Array: wargs}.Write(workerConn)
+
+		response, err := resp.Read(bufio.NewReader(workerConn))
 		workerConn.Close()
+		if err != nil {
+			writeClientError(conn, "Error: Worker response failed", respMode)
+			continue
+		}
+
+		if respMode {
+			response.Write(conn)
+		} else {
+			switch response.Kind {
+			case '+':
+				fmt.Fprintf(conn, "%s\n", response.Str)
+			case '$':
+				fmt.Fprintf(conn, "%s\n", response.Str)
+			case '-':
+				fmt.Fprintf(conn, "Error: %s\n", response.Str)
+			default:
+				io.WriteString(conn, "Error: unexpected response\n")
+			}
+		}
+	}
+}
+
+func writeClientError(conn net.Conn, msg string, respMode bool) {
+	if respMode {
+		resp.Value{Kind: '-', Str: msg}.Write(conn)
+	} else {
+		io.WriteString(conn, msg+"\n")
 	}
 }
 
