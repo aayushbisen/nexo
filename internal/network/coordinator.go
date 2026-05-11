@@ -77,6 +77,11 @@ func (c *Coordinator) handleConnection(conn net.Conn, wg *sync.WaitGroup) {
 				writeClientError(conn, "Delete command needs key to work", respMode)
 				continue
 			}
+		case "EXPIRE":
+			if len(args) < 2 {
+				writeClientError(conn, "Expire command needs key and seconds to work", respMode)
+				continue
+			}
 		default:
 			writeClientError(conn, "Error Unknown command", respMode)
 			continue
@@ -109,6 +114,8 @@ func (c *Coordinator) handleConnection(conn net.Conn, wg *sync.WaitGroup) {
 			switch response.Kind {
 			case '+':
 				fmt.Fprintf(conn, "%s\n", response.Str)
+			case ':':
+				fmt.Fprintf(conn, "%d\n", response.Integer)
 			case '$':
 				fmt.Fprintf(conn, "%s\n", response.Str)
 			case '-':

@@ -308,3 +308,33 @@ func TestCoordinatorStartShutsDownOnContextCancel(t *testing.T) {
 	<-done
 	wg.Wait()
 }
+
+// EXPIRE command is forwarded to the worker, and the worker's integer response is relayed back.
+func TestCoordinatorRelaysExpireResponse(t *testing.T) {
+	client, server := net.Pipe()
+	workerClient, workerServer := net.Pipe()
+
+	c := testCoordinator(t, workerClient)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go c.handleConnection(server, &wg)
+
+	go func() {
+		val, err := resp.Read(bufio.NewReader(workerServer))
+		if err != nil || len(val.Array) != 3 || val.Array[0].Str != "EXPIRE" || val.Array[1].Str != "key" || val.Array[2].Str != "10" {
+			t.Errorf("worker got unexpected command: %v", val)
+		}
+		resp.Value{Kind: ':', Integer: 1}.Write(workerServer)
+		workerServer.Close()
+	}()
+
+	resp := coordSendAndRead(t, client, "EXPIRE key 10")
+	if resp != "1" {
+		t.Fatalf("expected '1', got %q", resp)
+	}
+
+	client.Close()
+	server.Close()
+	wg.Wait()
+}
