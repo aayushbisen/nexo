@@ -1,6 +1,6 @@
 # Nexo
 
-A lightweight, distributed, in-memory key-value cache written in Go. It features a type-safe generic core, LRU eviction, and consistent hashing across a TCP cluster.
+A lightweight, distributed, in-memory key-value cache written in Go. It features a type-safe generic core, LRU eviction, TTL expiration, and consistent hashing across a TCP cluster.
 
 ## Architecture
 
@@ -39,9 +39,17 @@ Use with `redis-cli` or raw `printf`:
 printf '*3\r\n$3\r\nSET\r\n$1\r\na\r\n$1\r\n1\r\n' | nc localhost 9090
 # +OK\r\n
 
+# SET with TTL (seconds)
+printf '*5\r\n$3\r\nSET\r\n$1\r\na\r\n$1\r\n1\r\n$2\r\nEX\r\n$1\r\n1\r\n' | nc localhost 9090
+# +OK\r\n
+
 # GET
 printf '*2\r\n$3\r\nGET\r\n$1\r\na\r\n' | nc localhost 9090
 # $1\r\n1\r\n
+
+# EXPIRE (set TTL on existing key)
+printf '*3\r\n$6\r\nEXPIRE\r\n$1\r\na\r\n$1\r\n1\r\n' | nc localhost 9090
+# :1\r\n
 ```
 
 ### Plain Text (nc-compatible)
@@ -51,8 +59,10 @@ Standard newline-delimited commands:
 ```
 nc localhost 9090
 SET name nexo
+SET temp value EX 60
 GET name
 DEL name
+EXPIRE name 120
 ```
 
 ## Structure
@@ -85,7 +95,7 @@ make test        # run all tests
 make test -race  # check for race conditions
 ```
 
-38 unit tests across all packages. **94.9% coverage.**
+44 unit tests across all packages. **94.9% coverage.**
 
 ## Stack
 
