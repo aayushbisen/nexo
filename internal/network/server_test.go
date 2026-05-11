@@ -337,3 +337,91 @@ func TestHandleConnectionRESPExpire(t *testing.T) {
 	server.Close()
 	wg.Wait()
 }
+
+func TestHandleConnectionPING(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+
+	s := testServer(t)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go s.handleConnection(server, &wg)
+
+	resp := sendAndRead(t, client, "PING")
+	if resp != "PONG" {
+		t.Fatalf("expected 'PONG', got %q", resp)
+	}
+
+	server.Close()
+	wg.Wait()
+}
+
+func TestHandleConnectionPINGWithMessage(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+
+	s := testServer(t)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go s.handleConnection(server, &wg)
+
+	resp := sendAndRead(t, client, "PING hello")
+	if resp != "hello" {
+		t.Fatalf("expected 'hello', got %q", resp)
+	}
+
+	server.Close()
+	wg.Wait()
+}
+
+func TestHandleConnectionRESPPING(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+
+	s := testServer(t)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go s.handleConnection(server, &wg)
+
+	_, err := client.Write([]byte("*1\r\n$4\r\nPING\r\n"))
+	if err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	val, err := resp.Read(bufio.NewReader(client))
+	if err != nil {
+		t.Fatalf("resp read failed: %v", err)
+	}
+	if val.Kind != '+' || val.Str != "PONG" {
+		t.Fatalf("expected +PONG, got %c %q", val.Kind, val.Str)
+	}
+
+	server.Close()
+	wg.Wait()
+}
+
+func TestHandleConnectionRESPPINGWithMessage(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+
+	s := testServer(t)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go s.handleConnection(server, &wg)
+
+	_, err := client.Write([]byte("*2\r\n$4\r\nPING\r\n$5\r\nhello\r\n"))
+	if err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	val, err := resp.Read(bufio.NewReader(client))
+	if err != nil {
+		t.Fatalf("resp read failed: %v", err)
+	}
+	if val.Kind != '$' || val.Str != "hello" {
+		t.Fatalf("expected $hello, got %c %q", val.Kind, val.Str)
+	}
+
+	server.Close()
+	wg.Wait()
+}

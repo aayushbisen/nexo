@@ -109,6 +109,12 @@ func (s *Server) handleConnection(conn net.Conn, wg *sync.WaitGroup) {
 				} else {
 					resp.Value{Kind: ':', Integer: 0}.Write(conn)
 				}
+			case "PING":
+				if len(args) > 0 {
+					resp.Value{Kind: '$', Str: args[0].Str}.Write(conn)
+				} else {
+					resp.Value{Kind: '+', Str: "PONG"}.Write(conn)
+				}
 			default:
 				resp.Value{Kind: '-', Str: "ERR unknown command"}.Write(conn)
 			}
@@ -193,6 +199,12 @@ func (s *Server) handleConnection(conn net.Conn, wg *sync.WaitGroup) {
 					io.WriteString(conn, "1\n")
 				} else {
 					io.WriteString(conn, "0\n")
+				}
+			case "PING":
+				if len(listCmd) > 1 {
+					fmt.Fprintf(conn, "%s\n", listCmd[1])
+				} else {
+					io.WriteString(conn, "PONG\n")
 				}
 			default:
 				io.WriteString(conn, "Error Unknown command\n")
