@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"context"
 	"net"
+	"nexo/internal/resp"
 	"nexo/internal/store"
 	"sync"
 	"testing"
+	"time"
 )
 
 // helper: creates a server with a fresh store for testing
@@ -190,5 +192,148 @@ func TestStartShutsDownOnContextCancel(t *testing.T) {
 
 	cancel()
 	<-done
+	wg.Wait()
+}
+
+// SET with EX stores a key that expires after the TTL.
+func TestHandleConnectionSetWithEX(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+
+	s := testServer(t)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go s.handleConnection(server, &wg)
+
+	resp := sendAndRead(t, client, "SET temp val EX 1")
+	if resp != "OK" {
+		t.Fatalf("expected OK, got %q", resp)
+	}
+
+	val, ok := s.St.Get("temp")
+	if !ok {
+		t.Fatal("expected key to exist immediately after SET")
+	}
+	if val != "val" {
+		t.Fatalf("expected 'val', got %q", val)
+	}
+
+	time.Sleep(1100 * time.Millisecond)
+	_, ok = s.St.Get("temp")
+	if ok {
+		t.Fatal("expected key to expire after TTL")
+	}
+
+	server.Close()
+	wg.Wait()
+}
+
+// EXPIRE updates the TTL of an existing key.
+func TestHandleConnectionExpire(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+
+	s := testServer(t)
+	s.St.Set("key", "value")
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go s.handleConnection(server, &wg)
+
+	resp := sendAndRead(t, client, "EXPIRE key 1")
+	if resp != "1" {
+		t.Fatalf("expected '1', got %q", resp)
+	}
+
+	time.Sleep(1100 * time.Millisecond)
+	_, ok := s.St.Get("key")
+	if ok {
+		t.Fatal("expected key to expire after EXPIRE")
+	}
+
+	server.Close()
+	wg.Wait()
+}
+
+// EXPIRE on a missing key returns 0.
+func TestHandleConnectionExpireMissing(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+
+	s := testServer(t)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go s.handleConnection(server, &wg)
+
+	resp := sendAndRead(t, client, "EXPIRE missing 10")
+	if resp != "0" {
+		t.Fatalf("expected '0', got %q", resp)
+	}
+
+	server.Close()
+	wg.Wait()
+}
+
+// RESP SET with EX stores a key that expires after the TTL.
+func TestHandleConnectionRESPSetWithEX(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+
+	s := testServer(t)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go s.handleConnection(server, &wg)
+
+	cmd := "*5\r\n$3\r\nSET\r\n$3\r\nkey\r\n$3\r\nval\r\n$2\r\nEX\r\n$1\r\n1\r\n"
+	_, err := client.Write([]byte(cmd))
+	if err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	val, err := resp.Read(bufio.NewReader(client))
+	if err != nil {
+		t.Fatalf("resp read failed: %v", err)
+	}
+	if val.Kind != '+' || val.Str != "OK" {
+		t.Fatalf("expected +OK, got %c %q", val.Kind, val.Str)
+	}
+
+	time.Sleep(1100 * time.Millisecond)
+	_, ok := s.St.Get("key")
+	if ok {
+		t.Fatal("expected key to expire after RESP SET EX")
+	}
+
+	server.Close()
+	wg.Wait()
+}
+
+// RESP EXPIRE returns an integer reply.
+func TestHandleConnectionRESPExpire(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+
+	s := testServer(t)
+	s.St.Set("key", "value")
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go s.handleConnection(server, &wg)
+
+	cmd := "*3\r\n$6\r\nEXPIRE\r\n$3\r\nkey\r\n$2\r\n10\r\n"
+	_, err := client.Write([]byte(cmd))
+	if err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	val, err := resp.Read(bufio.NewReader(client))
+	if err != nil {
+		t.Fatalf("resp read failed: %v", err)
+	}
+	if val.Kind != ':' || val.Integer != 1 {
+		t.Fatalf("expected :1, got %c %d", val.Kind, val.Integer)
+	}
+
+	server.Close()
 	wg.Wait()
 }

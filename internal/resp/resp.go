@@ -20,6 +20,8 @@ func (v Value) Write(wr io.Writer) error {
 		fmt.Fprintf(wr, "+%s\r\n", v.Str)
 	case '-':
 		fmt.Fprintf(wr, "-%s\r\n", v.Str)
+	case ':':
+		fmt.Fprintf(wr, ":%d\r\n", v.Integer)
 	case '$':
 		fmt.Fprintf(wr, "$%d\r\n%s\r\n", len(v.Str), v.Str)
 	case '*':
@@ -53,6 +55,16 @@ func Read(r *bufio.Reader) (Value, error) {
 			return Value{}, err
 		}
 		return Value{Kind: '-', Str: line[:len(line)-2]}, nil
+	case ':':
+		line, err := r.ReadString('\n')
+		if err != nil {
+			return Value{}, err
+		}
+		n, err := strconv.ParseInt(line[:len(line)-2], 10, 64)
+		if err != nil {
+			return Value{}, err
+		}
+		return Value{Kind: ':', Integer: n}, nil
 	case '$':
 		countStr, err := r.ReadString('\n')
 		if err != nil {
