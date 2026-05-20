@@ -1,0 +1,12 @@
+{
+  "name": "nexo-example",
+  "version": "1.0.0",
+  "description": "Example showing how to connect to Nexo using ioredis",
+  "main": "main.js",
+  "scripts": {
+    "start": "node main.js"
+  },
+  "dependencies": {
+    "ioredis": "^5.4.1"
+  }
+}
