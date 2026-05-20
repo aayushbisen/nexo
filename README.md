@@ -65,6 +65,10 @@ DEL name
 EXPIRE name 120
 ```
 
+## Examples
+
+See the [`examples/`](examples/) folder for runnable client examples in Go, Python, Node.js, and raw TCP.
+
 ## Structure
 
 ```
